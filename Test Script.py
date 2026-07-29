@@ -1,78 +1,69 @@
 """
-rc_bringup.py -- Phase 1 bench bring-up
+rc_bringup.py -- bench bring-up for phase 1
 
-Target  : Raspberry Pi Pico WH, MicroPython (Pico W firmware build)
-Drives  : 2x TT gear motor via DFRobot MD1.3 (L298N) dual H-bridge
-          1x MG90S steering servo fed from an L7805 5 V rail
-Control : interactive commands typed into the USB serial REPL
+Pico WH running MicroPython, driving 2 TT gear motors through an
+MD1.3 (L298N) dual H-bridge, plus an MG90S steering servo off the
+5V rail. Everything's controlled by typing commands into the REPL.
 
-Run this from Thonny (F5) rather than saving it as main.py while you are
-still testing -- you want Ctrl-C to be able to kill everything instantly.
+Run this with F5 in Thonny instead of dropping it in as main.py while
+testing -- need Ctrl-C to be able to kill things instantly.
 """
 
 from machine import Pin, PWM, ADC
 import time
 
 
-# =====================================================================
-# CONFIGURATION  -- edit here, not in the code below
-# =====================================================================
+# ---------------------------------------------------------------------
+# config - change stuff here, not down in the code
+# ---------------------------------------------------------------------
 
-# --- MD1.3 control pins ---------------------------------------------
-# E = Enable (PWM -> speed),  M = Mode (logic level -> direction)
-PIN_M1_E = 16          # Pico physical pin 21  ->  MD1.3 E1
-PIN_M1_M = 17          # Pico physical pin 22  ->  MD1.3 M1
-PIN_M2_E = 18          # Pico physical pin 24  ->  MD1.3 E2
-PIN_M2_M = 19          # Pico physical pin 25  ->  MD1.3 M2
+# MD1.3 pins. E = enable (PWM, speed), M = mode (direction)
+PIN_M1_E = 16          # physical pin 21 -> MD1.3 E1
+PIN_M1_M = 17          # physical pin 22 -> MD1.3 M1
+PIN_M2_E = 18          # physical pin 24 -> MD1.3 E2
+PIN_M2_M = 19          # physical pin 25 -> MD1.3 M2
 
-# --- Servo -----------------------------------------------------------
-PIN_SERVO = 15         # Pico physical pin 20  ->  MG90S signal (orange)
+PIN_SERVO = 15          # physical pin 20 -> MG90S signal (orange)
 
-# --- Motor PWM -------------------------------------------------------
-MOTOR_PWM_HZ = 1000    # 1 kHz sits comfortably inside the L298N's range
+MOTOR_PWM_HZ = 1000     # 1kHz is fine for the L298N
 
-# Duty ceiling. This is what protects the 3-6 V TT motors from a 9 V pack:
-#   pack ~9.0 V  -  L298N bridge drop ~2.0 V  =  ~7.0 V at the motor at 100%
-#   0.75 x 7.0 V = ~5.3 V effective  ->  inside the motor's 3-6 V rating
-# Raise this toward 1.0 only after moving to the 7.2 V NiMH pack.
+# duty ceiling - keeps the 3-6V TT motors safe on the 9V pack
+#   9V pack - ~2V bridge drop = ~7V at the motor at full duty
+#   0.75 * 7V = ~5.3V, still inside the 3-6V rating
+# only bump this up once I switch to the 7.2V NiMH pack
 MAX_DUTY = 0.75
 
-# The motors mount mirrored on the chassis. Flip these until 'f' goes forward.
+# motors are mounted mirrored, flip these if 'f' doesn't go forward
 M1_INVERT = False
 M2_INVERT = False
 
-# Coast time forced in before any direction reversal, milliseconds.
 REVERSE_COAST_MS = 60
 
-# --- MG90S servo timing ---------------------------------------------
 SERVO_HZ     = 50
-SERVO_MIN_US = 1000    # deliberately narrow. Widen only after finding the
-SERVO_MAX_US = 2000    # real mechanical endpoints with the 'us' command.
+SERVO_MIN_US = 1000     # narrow on purpose, widen after finding the
+SERVO_MAX_US = 2000     # real endpoints with the 'us' command
 SERVO_CENTRE = 90
 
-# --- Optional pack-voltage monitor (guide section 9) -----------------
-BATT_ADC_GP    = None  # set to 26 once the resistor divider is fitted
-BATT_DIV_RATIO = 4.03  # (100k + 33k) / 33k
+# battery voltage monitor, optional
+BATT_ADC_GP    = None   # set to 26 once the divider is wired up
+BATT_DIV_RATIO = 4.03   # (100k + 33k) / 33k
 BATT_ADC_VREF  = 3.30
 
-# --- Console defaults -------------------------------------------------
 DEFAULT_DUTY = 0.30
 DEFAULT_SECS = 2.0
 
 
-# =====================================================================
-# DRIVERS
-# =====================================================================
+# ---------------------------------------------------------------------
+# drivers
+# ---------------------------------------------------------------------
 
 class Motor:
     """One channel of the MD1.3.
 
-    Truth table, straight out of the MD1.3 datasheet:
-
-        E LOW            ->  stopped (M is don't-care)
-        E HIGH, M LOW    ->  forward
-        E HIGH, M HIGH   ->  reverse
-        E PWM            ->  speed control
+    E LOW          -> stopped (M doesn't matter)
+    E HIGH, M LOW  -> forward
+    E HIGH, M HIGH -> reverse
+    E PWM          -> speed control
     """
 
     def __init__(self, en_gp, dir_gp, name, invert=False):
@@ -90,8 +81,8 @@ class Motor:
         cmd = -duty if self.invert else duty
         want_dir = 0 if cmd >= 0 else 1
 
-        # Never slam a spinning motor through zero into the other direction.
-        # Kill the enable, let it coast, then flip the direction line.
+        # don't slam a spinning motor straight into reverse - kill the
+        # enable, coast for a bit, then flip direction
         if want_dir != self.dir.value() and self.duty != 0.0:
             self.en.duty_u16(0)
             time.sleep_ms(REVERSE_COAST_MS)
@@ -110,13 +101,13 @@ class Motor:
 
 
 class Servo:
-    """MG90S on a 50 Hz PWM channel.
+    """MG90S on a 50Hz PWM channel.
 
-    Starts detached -- no pulses are emitted until you explicitly command a
-    position, so nothing lurches the moment the script loads.
+    Starts detached - no pulses go out until I actually tell it to move,
+    so it doesn't jump the second the script loads.
     """
 
-    HARD_MIN_US = 500      # absolute guard rails. Never exceeded, ever.
+    HARD_MIN_US = 500      # never go past these, no matter what
     HARD_MAX_US = 2500
 
     def __init__(self, gp, min_us=SERVO_MIN_US, max_us=SERVO_MAX_US):
@@ -130,7 +121,7 @@ class Servo:
         self.pwm.duty_u16(0)
 
     def write_us(self, us):
-        """Command a raw pulse width. Returns the value actually applied."""
+        """Sets a raw pulse width, returns what actually got applied."""
         us = max(self.HARD_MIN_US, min(self.HARD_MAX_US, int(us)))
         self.pwm.duty_u16(int(us * 65535 // self.period_us))
         self.us = us
@@ -152,7 +143,7 @@ class Servo:
             time.sleep_ms(dwell_ms)
 
     def detach(self):
-        """Stop pulsing. The servo goes limp and stops holding or buzzing."""
+        """Servo goes limp, stops buzzing/holding position."""
         self.pwm.duty_u16(0)
         self.angle = None
         self.us = None
@@ -163,7 +154,7 @@ class Servo:
 
 
 class Battery:
-    """Pack voltage via an external divider. Optional -- see guide section 9."""
+    """Pack voltage through an external divider. Optional."""
 
     def __init__(self, gp, ratio, vref=BATT_ADC_VREF):
         self.adc = ADC(Pin(gp))
@@ -178,9 +169,9 @@ class Battery:
         return (total / samples) * self.vref / 65535.0 * self.ratio
 
 
-# =====================================================================
-# CONSOLE
-# =====================================================================
+# ---------------------------------------------------------------------
+# console
+# ---------------------------------------------------------------------
 
 HELP = """
   MOTORS
@@ -216,7 +207,7 @@ def _arg(args, i, default):
 
 
 def timed_drive(m1, m2, d1, d2, secs):
-    """Run both channels for a fixed time, then guarantee a stop."""
+    """Runs both motors for a set time, always stops after even on error."""
     try:
         m1.drive(d1)
         m2.drive(d2)
@@ -227,7 +218,7 @@ def timed_drive(m1, m2, d1, d2, secs):
 
 
 def find_deadband(m1, m2):
-    """Step the duty up slowly so you can note where each motor starts."""
+    """Ramps duty up slowly - watch for where each motor actually starts."""
     print("Ramping. Note the duty at which each motor actually begins to turn.")
     d = 0.05
     try:
@@ -266,7 +257,7 @@ def main():
             parts = raw.split()
             cmd, args = parts[0], parts[1:]
 
-            # ---- motors -------------------------------------------------
+            # motors
             if cmd == "x":
                 m1.stop()
                 m2.stop()
@@ -300,7 +291,7 @@ def main():
             elif cmd == "ramp":
                 find_deadband(m1, m2)
 
-            # ---- servo --------------------------------------------------
+            # servo
             elif cmd == "s":
                 deg = _arg(args, 0, SERVO_CENTRE)
                 us = srv.write_angle(deg)
@@ -329,7 +320,7 @@ def main():
                 srv.detach()
                 print("servo detached")
 
-            # ---- misc ---------------------------------------------------
+            # misc
             elif cmd == "v":
                 if batt is None:
                     print("no divider configured -- set BATT_ADC_GP = 26")
