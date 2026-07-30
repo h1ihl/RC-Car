@@ -192,6 +192,7 @@ HELP = """
 
   OTHER
     v                  read pack voltage (needs the optional divider)
+    sag [duty] [secs]  drive both motors and log the voltage dip under load
     ?                  this help
     q                  stop everything and exit
 
@@ -233,6 +234,31 @@ def find_deadband(m1, m2):
         m1.stop()
         m2.stop()
         print("Ramp finished, motors stopped.")
+
+
+def track_sag(m1, m2, batt, duty=DEFAULT_DUTY, secs=DEFAULT_SECS, sample_interval_ms=20):
+    """Drives both motors and watches pack voltage the whole time, reports the worst dip."""
+    idle_v = batt.volts()
+    print("idle: %.2f V" % idle_v)
+
+    min_v = idle_v
+    samples = max(1, int(secs * 1000 / sample_interval_ms))
+    try:
+        m1.drive(duty)
+        m2.drive(duty)
+        for _ in range(samples):
+            v = batt.volts(samples=4)
+            if v < min_v:
+                min_v = v
+            time.sleep_ms(sample_interval_ms)
+    finally:
+        m1.stop()
+        m2.stop()
+
+    sag = idle_v - min_v
+    print("min under load: %.2f V" % min_v)
+    print("sag: %.2f V" % sag)
+    return idle_v, min_v, sag
 
 
 def main():
@@ -326,6 +352,14 @@ def main():
                     print("no divider configured -- set BATT_ADC_GP = 26")
                 else:
                     print("pack: %.2f V" % batt.volts())
+
+            elif cmd == "sag":
+                if batt is None:
+                    print("no divider configured -- set BATT_ADC_GP = 26")
+                else:
+                    d = _arg(args, 0, DEFAULT_DUTY)
+                    t = _arg(args, 1, DEFAULT_SECS)
+                    track_sag(m1, m2, batt, d, t)
 
             elif cmd == "?":
                 print(HELP)
