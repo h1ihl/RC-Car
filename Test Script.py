@@ -27,11 +27,11 @@ PIN_SERVO = 15          # physical pin 20 -> MG90S signal (orange)
 
 MOTOR_PWM_HZ = 1000     # 1kHz is fine for the L298N
 
-# duty ceiling - keeps the 3-6V TT motors safe on the 9V pack
-#   9V pack - ~2V bridge drop = ~7V at the motor at full duty
-#   0.75 * 7V = ~5.3V, still inside the 3-6V rating
-# only bump this up once I switch to the 7.2V NiMH pack
-MAX_DUTY = 0.75
+# duty ceiling - keeps the 3-6V TT motors safe on the pack
+#   7.2V pack - ~2V bridge drop = ~5.2V at the motor at full duty
+#   already inside the 3-6V rating, so no ceiling needed now that
+#   I'm on the 7.2V NiMH pack instead of the old 9V alkalines
+MAX_DUTY = 1.0
 
 # motors are mounted mirrored, flip these if 'f' doesn't go forward
 M1_INVERT = False
@@ -45,7 +45,7 @@ SERVO_MAX_US = 2000     # real endpoints with the 'us' command
 SERVO_CENTRE = 90
 
 # battery voltage monitor, optional
-BATT_ADC_GP    = None   # set to 26 once the divider is wired up
+BATT_ADC_GP    = 26     # divider's wired up on GP26
 BATT_DIV_RATIO = 4.03   # (100k + 33k) / 33k
 BATT_ADC_VREF  = 3.30
 
