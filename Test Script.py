@@ -189,6 +189,10 @@ HELP = """
     c                  centre (90 deg)
     sw                 sweep 60 -> 120 -> centre
     det                detach (stop pulsing, servo goes limp)
+    sstall <us> [ms]   hold servo at a pulse width and log rail sag
+                        (use just past your measured endpoint to stall it
+                        deliberately - short holds only, servo already
+                        died once to this)
 
   OTHER
     v                  read pack voltage (needs the optional divider)
@@ -257,6 +261,38 @@ def track_sag(m1, m2, batt, duty=DEFAULT_DUTY, secs=DEFAULT_SECS, sample_interva
 
     sag = idle_v - min_v
     print("min under load: %.2f V" % min_v)
+    print("sag: %.2f V" % sag)
+    return idle_v, min_v, sag
+
+
+def track_servo_sag(srv, batt, target_us, hold_ms=250, sample_ms=5):
+    """Commands the servo hard (ideally against a stall) and watches the
+    rail for the duration of the hold. Not fast enough to catch the initial
+    current transient (~ms timescale) - that needs a scope. What this does
+    catch is sustained stall draw, which is what actually matters for
+    verifying the cap fix holds under a fault condition.
+
+    Detaches the servo immediately after regardless of outcome. Don't run
+    this many times in a row - a couple of short holds is enough, then
+    let the servo cool and feel for heat.
+    """
+    idle_v = batt.volts()
+    print("idle: %.2f V" % idle_v)
+
+    min_v = idle_v
+    t0 = time.ticks_ms()
+    srv.write_us(target_us)
+    try:
+        while time.ticks_diff(time.ticks_ms(), t0) < hold_ms:
+            v = batt.volts(samples=2)
+            if v < min_v:
+                min_v = v
+            time.sleep_ms(sample_ms)
+    finally:
+        srv.detach()
+
+    sag = idle_v - min_v
+    print("min under stall: %.2f V" % min_v)
     print("sag: %.2f V" % sag)
     return idle_v, min_v, sag
 
@@ -345,6 +381,17 @@ def main():
             elif cmd == "det":
                 srv.detach()
                 print("servo detached")
+
+            elif cmd == "sstall":
+                if batt is None:
+                    print("no divider configured -- set BATT_ADC_GP = 26")
+                elif not args:
+                    print("need a pulse width, e.g. sstall 2400")
+                else:
+                    us = _arg(args, 0, srv.us if srv.us else SERVO_MIN_US)
+                    ms = _arg(args, 1, 250)
+                    print("holding servo at %d us for %d ms" % (int(us), int(ms)))
+                    track_servo_sag(srv, batt, int(us), hold_ms=int(ms))
 
             # misc
             elif cmd == "v":
