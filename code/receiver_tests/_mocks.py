@@ -100,6 +100,12 @@ if "bluetooth" not in sys.modules:
         def __hash__(self):
             return hash(self.value)
 
+        def __bytes__(self):
+            # doesn't need to be spec-correct BLE wire format -- just
+            # needs to behave like a fixed-length buffer so
+            # ble_link.py's advertising payload builder doesn't blow up
+            return str(self.value).encode().ljust(16, b"\x00")[:16]
+
     class _FakeBLE:
         def active(self, *a, **kw):
             pass
