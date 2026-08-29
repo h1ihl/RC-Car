@@ -122,6 +122,22 @@ if "bluetooth" not in sys.modules:
         def gap_advertise(self, *a, **kw):
             pass
 
+        # central-role methods, used by the test transmitter stub
+        def gap_scan(self, *a, **kw):
+            pass
+
+        def gap_connect(self, *a, **kw):
+            pass
+
+        def gattc_discover_services(self, *a, **kw):
+            pass
+
+        def gattc_discover_characteristics(self, *a, **kw):
+            pass
+
+        def gattc_write(self, *a, **kw):
+            pass
+
     _bt.UUID = _FakeUUID
     _bt.BLE = _FakeBLE
     sys.modules["bluetooth"] = _bt
