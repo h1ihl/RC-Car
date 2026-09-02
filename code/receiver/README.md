@@ -52,3 +52,6 @@ testing.
    sequence, including a deliberate silence to check the receiver's failsafe actually trips.
 4. Watch the receiver's REPL output (diagnostics prints pack voltage, link state, failsafe state,
    current throttle/steer once a second) and the LED heartbeat pattern.
+
+For driving it with actual joysticks instead of the scripted sequence, flash `../transmitter/`
+(the real transmitter) onto the second Pico W instead -- see its README.
