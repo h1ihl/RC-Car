@@ -41,10 +41,40 @@ class TxStubCompatTests(unittest.TestCase):
             self.assertAlmostEqual(s, steering, places=2)
             self.assertEqual(decoded_seq, seq & 0xFFFF)
 
-    def test_receiver_link_constructs_without_error(self):
+    def test_send_interval_matches_what_the_receiver_expects(self):
+        self.assertEqual(ble_test_tx.SEND_INTERVAL_MS,
+                         config.EXPECTED_PACKET_INTERVAL_MS)
+
+    def test_receiver_link_constructs_and_starts_scanning(self):
         link = ble_test_tx.ReceiverLink(bluetooth.BLE())
         link.scan_and_connect()
         self.assertFalse(link.ready())
+
+    def test_stub_writes_unacknowledged_like_the_real_transmitter(self):
+        """Copy-pasted BLE plumbing is exactly where the stub and the
+        real transmitter can drift apart, and this is the setting that
+        matters most: a write-WITH-response can only have one request
+        outstanding, so at 50Hz the stream dies after a packet or two.
+        Mode 0 is write-without-response."""
+        self.assertEqual(ble_test_tx._WRITE_NO_RESPONSE, 0)
+
+        sent = []
+        link = ble_test_tx.ReceiverLink(bluetooth.BLE())
+        link._ble.gattc_write = lambda *a: sent.append(a)
+        link._conn_handle = 1
+        link._control_value_handle = 12
+        link._ready = True
+
+        self.assertTrue(link.write(b"\x01"))
+        (_conn, _handle, _data, mode), = sent
+        self.assertEqual(mode, ble_test_tx._WRITE_NO_RESPONSE)
+
+    def test_stub_write_before_ready_sends_nothing(self):
+        sent = []
+        link = ble_test_tx.ReceiverLink(bluetooth.BLE())
+        link._ble.gattc_write = lambda *a: sent.append(a)
+        self.assertFalse(link.write(b"\x01"))
+        self.assertEqual(sent, [])
 
 
 if __name__ == "__main__":

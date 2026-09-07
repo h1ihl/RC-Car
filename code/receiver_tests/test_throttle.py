@@ -73,6 +73,31 @@ class ThrottleTests(unittest.TestCase):
         self.t.tick(10.0)
         self.assertEqual(self.t.current_duty, 0.0)
 
+    def test_out_of_range_stick_input_cannot_overshoot(self):
+        """protocol.decode() already rejects anything outside +/-1.0, so
+        this can't happen on real traffic. It matters anyway: an
+        overshooting target ramps current_duty past 1.0, and since the
+        motors clamp at 1.0 the car would keep going flat out for the
+        whole time the ramp spent coming back down through the range
+        that does nothing."""
+        for absurd in (5.0, 1000.0):
+            self.t.set_from_joystick(absurd)
+            self.t.tick(10.0)
+            self.assertAlmostEqual(self.t.current_duty, config.MOTOR_MAX_DUTY, places=3)
+
+        for absurd in (-5.0, -1000.0):
+            self.t.set_from_joystick(absurd)
+            self.t.tick(10.0)
+            self.assertAlmostEqual(self.t.current_duty, -config.MOTOR_MAX_DUTY, places=3)
+
+    def test_recovery_from_full_lock_is_not_delayed(self):
+        self.t.set_from_joystick(1000.0)
+        self.t.tick(10.0)
+        self.t.set_from_joystick(0.0)
+        # one decel ramp's worth of time, no more
+        self.t.tick(config.MOTOR_MAX_DUTY / config.THROTTLE_DECEL_PER_S + 0.01)
+        self.assertEqual(self.t.current_duty, 0.0)
+
     def test_stop_immediately_is_instant(self):
         self.t.set_from_joystick(1.0)
         self.t.tick(10.0)

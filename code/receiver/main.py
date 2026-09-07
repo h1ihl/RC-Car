@@ -3,9 +3,10 @@ main.py -- receiver entry point.
 
 Ties everything together: BLE link in, failsafe watchdog, throttle/
 steering controllers out to the motors and servo. One loop, ~50Hz,
-nothing in it blocks -- there's no delay()-style wait anywhere except
-the reverse-coast handling buried inside motor.py, which is a real
-"physically has to happen before reversing" delay, not a busy-wait.
+nothing in it blocks -- the only delay()-style wait anywhere is the
+reverse-coast inside motor.py, and that one only fires for a motor
+that's genuinely spinning, which the throttle ramp means is almost
+never. Everything else, the BLE link included, is poll-and-return.
 
 Flash this as main.py to have it run automatically on boot. While still
 testing, run it with F5 from Thonny instead (same reasoning as the bench

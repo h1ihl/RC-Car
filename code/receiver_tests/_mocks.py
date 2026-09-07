@@ -91,22 +91,39 @@ if "bluetooth" not in sys.modules:
     _bt = types.ModuleType("bluetooth")
 
     class _FakeUUID:
+        # Real bluetooth.UUID normalizes whatever it's constructed from
+        # (a dashed string, or raw bytes off the air) into one canonical
+        # byte form for comparison -- that's what lets a link built a
+        # UUID from an advertising payload and compare it against one
+        # built from config.py's string and have equality actually work.
+        # Comparing .value directly would fail that exact case (str vs
+        # bytes), so equality/hash go through _bytes() instead.
         def __init__(self, value):
             self.value = value
 
-        def __eq__(self, other):
-            return isinstance(other, _FakeUUID) and self.value == other.value
-
-        def __hash__(self):
-            return hash(self.value)
-
-        def __bytes__(self):
+        def _bytes(self):
             # doesn't need to be spec-correct BLE wire format -- just
-            # needs to behave like a fixed-length buffer so
-            # ble_link.py's advertising payload builder doesn't blow up
+            # needs to behave like a fixed-length buffer so ble_link.py's
+            # advertising payload builder measures the right size
+            if isinstance(self.value, (bytes, bytearray)):
+                return bytes(self.value).ljust(16, b"\x00")[:16]
             return str(self.value).encode().ljust(16, b"\x00")[:16]
 
+        def __eq__(self, other):
+            return isinstance(other, _FakeUUID) and self._bytes() == other._bytes()
+
+        def __hash__(self):
+            return hash(self._bytes())
+
+        def __bytes__(self):
+            return self._bytes()
+
     class _FakeBLE:
+        def __init__(self):
+            self.adv_data = None
+            self.resp_data = None
+            self.buffer_sizes = {}
+
         def active(self, *a, **kw):
             pass
 
@@ -119,14 +136,23 @@ if "bluetooth" not in sys.modules:
         def gatts_read(self, *a, **kw):
             return b""
 
-        def gap_advertise(self, *a, **kw):
-            pass
+        def gatts_set_buffer(self, handle, size, append=False):
+            self.buffer_sizes[handle] = size
+
+        def gap_advertise(self, interval_us, adv_data=None, resp_data=None, **kw):
+            # recorded so tests can check the payloads actually fit in a
+            # BLE advertising packet -- see test_ble_link.py
+            self.adv_data = adv_data
+            self.resp_data = resp_data
 
         # central-role methods, used by the test transmitter stub
         def gap_scan(self, *a, **kw):
             pass
 
         def gap_connect(self, *a, **kw):
+            pass
+
+        def gap_disconnect(self, *a, **kw):
             pass
 
         def gattc_discover_services(self, *a, **kw):

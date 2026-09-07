@@ -46,16 +46,41 @@ class SteeringTests(unittest.TestCase):
             self.s.tick(0.005)
             self.assertLessEqual(abs(self.s.current_deg), config.STEER_LIMIT_DEG + 1e-9)
 
-    def test_pulse_width_within_calibrated_working_range(self):
+    def test_pulse_width_stays_inside_the_45_degree_window(self):
         self.s.set_from_joystick(1.0)
         self.s.tick(10.0)
-        self.assertLessEqual(self.servo.us, config.SERVO_MAX_US)
-        self.assertGreaterEqual(self.servo.us, config.SERVO_MIN_US)
+        self.assertLessEqual(self.servo.us, config.SERVO_STEER_MAX_US)
+        self.assertGreaterEqual(self.servo.us, config.SERVO_STEER_MIN_US)
 
         self.s.set_from_joystick(-1.0)
         self.s.tick(10.0)
-        self.assertLessEqual(self.servo.us, config.SERVO_MAX_US)
-        self.assertGreaterEqual(self.servo.us, config.SERVO_MIN_US)
+        self.assertLessEqual(self.servo.us, config.SERVO_STEER_MAX_US)
+        self.assertGreaterEqual(self.servo.us, config.SERVO_STEER_MIN_US)
+
+    def test_full_lock_lands_on_the_bench_scripts_45_and_135_degrees(self):
+        """The steering endpoints have to be the same two pulse widths
+        the bench script's 's 45' and 's 135' produce -- 1250us and
+        1750us. That's the whole point of sharing an angle frame with it:
+        an endpoint found by hand on the bench means the same thing to
+        the receiver, with nothing to convert in between."""
+        self.s.set_from_joystick(-1.0)
+        self.s.tick(10.0)
+        self.assertEqual(self.servo.us, 1250)
+
+        self.s.set_from_joystick(1.0)
+        self.s.tick(10.0)
+        self.assertEqual(self.servo.us, 1750)
+
+    def test_never_commands_past_the_window_even_with_absurd_input(self):
+        """The joystick should never hand us anything outside -1..1, but
+        if a decode bug or a future caller ever did, the steering clamp
+        -- not the servo's 500-2500us mechanical backstop -- is what has
+        to catch it. The mechanical stops are nowhere near 45 degrees."""
+        for absurd in (5.0, -5.0, 1000.0, -1000.0):
+            self.s.set_from_joystick(absurd)
+            self.s.tick(10.0)
+            self.assertLessEqual(self.servo.us, config.SERVO_STEER_MAX_US)
+            self.assertGreaterEqual(self.servo.us, config.SERVO_STEER_MIN_US)
 
     def test_ramps_not_instant(self):
         self.s.set_from_joystick(1.0)

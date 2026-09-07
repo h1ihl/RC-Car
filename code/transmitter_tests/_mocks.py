@@ -108,6 +108,9 @@ if "bluetooth" not in sys.modules:
         def gap_connect(self, *a, **kw):
             pass
 
+        def gap_disconnect(self, *a, **kw):
+            pass
+
         def gattc_discover_services(self, *a, **kw):
             pass
 

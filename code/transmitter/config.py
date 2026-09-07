@@ -45,6 +45,13 @@ BLE_CONTROL_CHAR_UUID = "c6a2f002-6b7e-4a1a-9f2e-3d4b5c6a7b8c"
 SEND_INTERVAL_MS = 20    # ~50Hz, matches receiver's EXPECTED_PACKET_INTERVAL_MS
 SCAN_TIMEOUT_MS = 8000   # how long one scan attempt runs before it's retried
 
+# how long the connect + service/characteristic discovery handshake gets
+# before ble_link gives up and goes back to scanning. Generous -- this
+# isn't a latency budget, it's a "we're wedged, start over" backstop, and
+# the only cost of it being too long is a slower recovery from a rare
+# failure. A normal connect+discover is well under a second.
+CONNECT_TIMEOUT_MS = 5000
+
 # ---------------------------------------------------------------------
 # main loop
 # ---------------------------------------------------------------------

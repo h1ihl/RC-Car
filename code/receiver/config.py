@@ -19,14 +19,27 @@ BATT_ADC_GP = 26
 
 MOTOR_PWM_HZ = 1000
 
-# motors mount mirrored on the chassis -- flip these if 'forward' comes
-# out backwards once it's on wheels
+# The two motors are mounted mirrored on the chassis, so "both wheels
+# driving the car forward" means the two H-bridge channels have to run
+# in OPPOSITE electrical directions -- confirmed on the bench, it's the
+# old script's 'sp' (counter-rotate) command that actually drove the car
+# forward, not 'f'. Inverting M2 here is what makes that a wiring detail
+# instead of something throttle.py has to know about: throttle.py hands
+# both motors the same signed duty, and this flag turns M2's half of it
+# into the right physical direction.
 M1_INVERT = False
-M2_INVERT = False
+M2_INVERT = True
 
 # don't slam a spinning motor straight into reverse -- kill the enable,
 # coast, then flip direction. Same value as the bench script.
 REVERSE_COAST_MS = 60
+
+# ...but only bother coasting if the motor was actually spinning. The
+# throttle ramp walks duty through zero on its way from forward to
+# reverse, so without this the direction flip lands on a motor that's
+# already stopped and blocks the control loop (failsafe included) for
+# REVERSE_COAST_MS for no mechanical reason at all.
+REVERSE_COAST_MIN_DUTY = 0.15
 
 # ---------------------------------------------------------------------
 # throttle
@@ -58,26 +71,39 @@ SERVO_HZ = 50
 
 # true mechanical endpoints, measured by a slow sweep rather than
 # commanding them directly (that's what killed the first servo). Never
-# command past these -- see servo.py's HARD_MIN/MAX.
+# command past these -- see servo.py's HARD_MIN/MAX. These are a
+# last-ditch backstop, NOT the steering range; steering never goes
+# anywhere near them (see SERVO_STEER_MIN/MAX_US below).
 SERVO_HARD_MIN_US = 500
 SERVO_HARD_MAX_US = 2500
 
-# working range with margin off the mechanical stops -- this is what
-# +/-90 degrees of raw servo travel maps onto. Matches the logbook's
-# validated numbers.
-SERVO_MIN_US = 550
-SERVO_MAX_US = 2450
+# What a "degree" means here. Identical to the bench script's
+# Servo.write_angle(): 0 deg = 1000us, 180 deg = 2000us, so 90 deg =
+# 1500us. Keeping the same frame as the bench script matters -- it means
+# an angle found on the bench with 's <deg>' means the exact same thing
+# to this code, no conversion in anyone's head.
+SERVO_ANGLE_MIN_US = 1000
+SERVO_ANGLE_MAX_US = 2000
+SERVO_US_PER_DEG = (SERVO_ANGLE_MAX_US - SERVO_ANGLE_MIN_US) / 180.0   # 5.556us/deg
 
-# TODO: placeholder -- this is just the pulse-width midpoint. The real
-# MG90S hasn't gone on the steering linkage yet. Once it's mounted, find
-# where the wheels actually point straight (bench script's 'us' command)
-# and update this.
+# TODO: placeholder -- this is just the pulse-width midpoint (bench
+# script's 's 90'). The real MG90S hasn't gone on the steering linkage
+# yet. Once it's mounted, find where the wheels actually point straight
+# (bench script's 'us' command) and update this; the +/-45 deg window
+# below shifts with it automatically.
 SERVO_CENTER_US = 1500
 
 # commanded steering range -- +/- this many degrees off centre, NOT the
 # servo's full mechanical sweep. Full stick = 45 degrees, not "whatever
 # the servo can physically do."
 STEER_LIMIT_DEG = 45.0
+
+# The pulse widths those +/-45 degrees actually come out as: 1250us and
+# 1750us, i.e. exactly the bench script's 's 45' and 's 135'. steering.py
+# clamps to these, so no amount of bad input or config drift can walk the
+# linkage past its 45-degree stops.
+SERVO_STEER_MIN_US = SERVO_CENTER_US - STEER_LIMIT_DEG * SERVO_US_PER_DEG
+SERVO_STEER_MAX_US = SERVO_CENTER_US + STEER_LIMIT_DEG * SERVO_US_PER_DEG
 
 # degrees/second the servo is allowed to move -- steering can ramp
 # faster than throttle, there's no momentum to fight against

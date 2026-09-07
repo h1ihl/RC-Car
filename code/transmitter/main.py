@@ -42,10 +42,20 @@ def main():
         while True:
             now = time.ticks_ms()
 
+            # link.tick() is where the BLE stack actually gets driven --
+            # scanning, connecting, discovery, and the timeouts that
+            # restart any of those if they wedge. The IRQ only ever
+            # records what happened; this is what acts on it.
+            link.tick(now)
+
             if link.ready():
                 packet = encode(throttle_axis.read(), steering_axis.read(), seq)
+                # write() returns False if the packet didn't make it out.
+                # Nothing to do about that here -- the next one is 20ms
+                # away, and a stale control packet is worth less than the
+                # fresh one behind it.
                 link.write(packet)
-                seq += 1
+                seq = (seq + 1) & 0xFFFF   # matches the protocol's 16-bit field
 
             diag.tick(now, link.ready())
 

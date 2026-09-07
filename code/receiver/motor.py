@@ -38,8 +38,15 @@ class Motor:
         want_dir = 0 if cmd >= 0 else 1
 
         # don't slam a spinning motor straight into reverse - kill the
-        # enable, coast for a bit, then flip direction
-        if want_dir != self.dir.value() and self.duty != 0.0:
+        # enable, coast for a bit, then flip direction.
+        #
+        # Only when it was actually spinning, though. The throttle ramp
+        # walks duty down through zero before it goes negative, so the
+        # direction flip normally lands on an already-stopped motor --
+        # blocking the whole control loop for REVERSE_COAST_MS there
+        # would delay the failsafe to protect a motor that isn't turning.
+        if (want_dir != self.dir.value()
+                and abs(self.duty) >= config.REVERSE_COAST_MIN_DUTY):
             self.en.duty_u16(0)
             time.sleep_ms(config.REVERSE_COAST_MS)
 

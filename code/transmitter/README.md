@@ -16,7 +16,7 @@ testing the receiver in isolation; this is what actually flies.
 | `config.py` | Every tunable constant (pins, invert flags, send rate) -- BLE UUIDs/protocol here must match `../receiver/config.py`. |
 | `protocol.py` | The BLE packet encoder -- copy of `../receiver/protocol.py`'s format (separate Pico, separate flash, no shared import). |
 | `joystick.py` | Reads the two analog axes, calibrates their rest position at boot, scales to -1..1. |
-| `ble_link.py` | BLE GATT central -- scans for the receiver, connects, writes control packets, auto-reconnects. |
+| `ble_link.py` | BLE GATT central -- scans for the receiver, connects, writes control packets, auto-reconnects, times out and retries anything that wedges. |
 | `diagnostics.py` | Onboard LED connection indicator. |
 
 ## Pin map (placeholder -- not yet wired/confirmed on real hardware)
@@ -38,6 +38,28 @@ controller enclosure is actually built, and flip `THROTTLE_INVERT`/
 
 Matches the receiver's own LED language (`../receiver/diagnostics.py`): not
 connected = slow blink there too, so both boards read the same way.
+
+If it blinks forever, the REPL says which stage it's stuck in -- scanning,
+connecting or discovering -- and it retries each of those on a timeout
+rather than sitting there. A permanent blink almost always means the
+receiver isn't advertising; see the troubleshooting section in
+`../receiver/README.md`, which is where that failure actually lives.
+
+## How the link is driven
+
+`main.py` calls `link.tick()` every loop iteration. That's not incidental:
+the BLE IRQ handler only *records* what happened, and `tick()` is what makes
+the actual scan/connect/discovery calls, from the main loop instead of from
+inside the stack's own callback. It's also where the per-stage timeouts get
+checked. A send loop that skips `tick()` will link up exactly never.
+
+Control packets go out **unacknowledged** (write-without-response). At 50Hz
+there's no room to wait for an ack per packet -- a write-with-response can
+only have one request outstanding, so the stream dies almost immediately.
+A packet that doesn't make it is worthless 20ms later anyway, and the
+receiver's failsafe covers a real outage. `write()` returns `False` instead
+of raising if the stack refuses a packet, so a momentarily-full buffer can't
+take the send loop down.
 
 ## Calibration
 

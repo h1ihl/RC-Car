@@ -56,7 +56,13 @@ class Diagnostics:
 
             if time.ticks_diff(now_ms, self._last_print_ms) >= config.DIAG_INTERVAL_MS:
                 self._last_print_ms = now_ms
-                v = self.battery.volts() if self.battery is not None else float("nan")
+                # deliberately fewer samples than battery.volts()'s
+                # default 32: each one costs a 200us blocking sleep, and
+                # 6.4ms is a third of a control-loop tick to spend on a
+                # number that only gets printed. 8 is plenty to average
+                # out ADC noise for a status line.
+                v = (self.battery.volts(samples=8)
+                     if self.battery is not None else float("nan"))
                 print("pack %.2fV  link=%s  failsafe=%s  duty=%.2f  steer=%.1f" % (
                     v, link_connected, failsafe_active, throttle_duty, steer_deg,
                 ))

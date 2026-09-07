@@ -13,7 +13,16 @@ import config
 def _apply_deadzone(x, deadzone):
     """Below the deadzone, treat it as dead centre. Above it, rescale so
     the remaining travel still covers the full -1..1 range -- otherwise
-    there'd be a dead patch right past the deadzone edge too."""
+    there'd be a dead patch right past the deadzone edge too.
+
+    Clamps its input first. protocol.decode() already rejects anything
+    outside +/-1.0, so this can't fire on real traffic -- but if it ever
+    did, an out-of-range stick would ramp current_duty up past 1.0, and
+    since the motors clamp at 1.0 the car would keep going flat out for
+    however long the ramp took to come back down through the range that
+    does nothing. Cheap to make impossible.
+    """
+    x = max(-1.0, min(1.0, x))
     if abs(x) <= deadzone:
         return 0.0
     sign = 1.0 if x > 0 else -1.0
